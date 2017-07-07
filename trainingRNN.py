@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import rnn
+from os import path
 
 from simple_converter import get_train_test_sets
 
@@ -10,6 +11,11 @@ def run_training(train_df, test_df):
     df_target = train_df['logerror']
     df_features = train_df.drop(['logerror'], axis=1, inplace=False)
     # constants
+    test_df_target = test_df['logerror']
+    test_df_features = test_df.drop(['logerror'], axis=1, inplace=False)
+
+
+    model_path = './tmp/model.ckpt';
 
     learning_rate = 0.0001
     batch_size = 128
@@ -58,7 +64,7 @@ def run_training(train_df, test_df):
         return features, target
 
     def get_test_data(i):
-        if i >  len(test_df):
+        if i > len(test_df):
             return None, None;
         get_list = [n % (len(test_df) - 1) for n in range(batch_size * i, batch_size * i + batch_size)]
         samples = test_df.iloc[get_list]
@@ -67,12 +73,17 @@ def run_training(train_df, test_df):
         features = features.reshape(1, batch_size, input_dim)
         return features, target
 
-    saver = tf.train.Saver()
+    saver = tf.train.Saver(write_version=tf.train.SaverDef.V2)
     with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
         try:
-            saver.restore(sess, './RNN-data/my-model')
-        except:
-            sess.run(tf.global_variables_initializer())
+            checkpoint_path = path.join(model_path, 'checkpoint')
+            filename = tf.train.latest_checkpoint(model_path)
+            saver.recover_last_checkpoints([checkpoint_path])
+            saver.restore(sess, saver.latest_checkpoint()[0])
+            print("retrieved model:")
+        except Exception as e:
+            print("unable to retrieve model\n  %s", e.message)
         # Doing 1000 iterations here, feel free to change this
         for i in range(1, 1001):
             input_data, output_data = get_input_data(i)
@@ -87,20 +98,17 @@ def run_training(train_df, test_df):
 
             if i % 10 == 0:
                 # This will print your training loss every 100 iterations
-
-                print('global step: %d' % global_step)
                 print('At stop %d loss is: %f' % (i, sess.run(loss, feed_dict=feed)))
             if i % 1000 == 0:
-                saver.save(sess, './RNN-data/my-model', global_step=global_step)
-        while True:
-            input_data, output_data = get_input_data(i)
-            if input_data is None:
-                break;
-            feed = {
-                input: input_data,
-                target: output_data
-            }
-
+                saver.save(sess, model_path, global_step=global_step)
+        # while True:
+        #     input_data, output_data = get_input_data(i)
+        #     if input_data is None:
+        #         break;
+        #     feed = {
+        #         input: input_data,
+        #         target: output_data
+        #     }
 
 
 if __name__ == '__main__':
