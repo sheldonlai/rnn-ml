@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import tensorflow as tf
 from tensorflow.contrib import rnn
 from os import path
@@ -17,7 +18,7 @@ def run_training(train_df, test_df):
 
     model_path = './tmp/model.ckpt';
 
-    learning_rate = 0.0001
+    learning_rate = 0.001
     batch_size = 128
     hidden_units_size = 1024
 
@@ -31,7 +32,8 @@ def run_training(train_df, test_df):
     # create RNN
     lstm = rnn.MultiRNNCell([
         rnn.BasicLSTMCell(hidden_units_size),
-        rnn.BasicLSTMCell(hidden_units_size)
+        rnn.BasicLSTMCell(hidden_units_size),
+        rnn.BasicLSTMCell(hidden_units_size),
     ])
     out, state = tf.nn.dynamic_rnn(lstm, input, dtype=tf.float32)
 
@@ -77,14 +79,11 @@ def run_training(train_df, test_df):
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         try:
-            checkpoint_path = path.join(model_path, 'checkpoint')
-            filename = tf.train.latest_checkpoint(model_path)
-            saver.recover_last_checkpoints([checkpoint_path])
-            saver.restore(sess, saver.latest_checkpoint()[0])
+            saver.restore(sess, './tmp/model.ckpt-360')
             print("retrieved model:")
         except Exception as e:
             print("unable to retrieve model\n  %s", e.message)
-        # Doing 1000 iterations here, feel free to change this
+
         for i in range(1, 1001):
             input_data, output_data = get_input_data(i)
 
@@ -98,9 +97,11 @@ def run_training(train_df, test_df):
 
             if i % 10 == 0:
                 # This will print your training loss every 100 iterations
-                print('At stop %d loss is: %f' % (i, sess.run(loss, feed_dict=feed)))
-            if i % 1000 == 0:
-                saver.save(sess, model_path, global_step=global_step)
+                step = tf.train.global_step(sess, global_step)
+                print('At stop %d loss is: %f' % (step, np.sqrt(sess.run(loss, feed_dict=feed))))
+            if i % 20 == 0:
+                save_path = saver.save(sess, model_path, global_step=global_step)
+                print('results saved to: %s' % save_path)
         # while True:
         #     input_data, output_data = get_input_data(i)
         #     if input_data is None:
@@ -112,5 +113,9 @@ def run_training(train_df, test_df):
 
 
 if __name__ == '__main__':
-    train, test = get_train_test_sets(0.8)
+    try:
+        test = pd.read_csv('./testing.csv', dtype='float32')
+        train = pd.read_csv('./training.csv', dtype='float32')
+    except:
+        train, test = get_train_test_sets(0.8)
     run_training(train, test)
