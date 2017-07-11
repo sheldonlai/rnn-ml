@@ -49,6 +49,6 @@ def get_train_test_sets(frac=0.7):
 
     testing_set = joined.loc[~joined.index.isin(training_set.index)]
     training_set.to_csv("training.csv", index=False)
-    training_set.to_csv("testing.csv", index=False)
+    testing_set.to_csv("testing.csv", index=False)
 
     return training_set, testing_set

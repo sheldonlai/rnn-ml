@@ -15,10 +15,9 @@ def run_training(train_df, test_df):
     test_df_target = test_df['logerror']
     test_df_features = test_df.drop(['logerror'], axis=1, inplace=False)
 
-
     model_path = './tmp/model.ckpt';
 
-    learning_rate = 0.001
+    learning_rate = 0.00001
     batch_size = 128
     hidden_units_size = 1024
 
@@ -31,6 +30,12 @@ def run_training(train_df, test_df):
 
     # create RNN
     lstm = rnn.MultiRNNCell([
+        rnn.BasicLSTMCell(hidden_units_size),
+        rnn.BasicLSTMCell(hidden_units_size),
+        rnn.BasicLSTMCell(hidden_units_size),
+        rnn.BasicLSTMCell(hidden_units_size),
+
+        rnn.BasicLSTMCell(hidden_units_size),
         rnn.BasicLSTMCell(hidden_units_size),
         rnn.BasicLSTMCell(hidden_units_size),
         rnn.BasicLSTMCell(hidden_units_size),
@@ -54,8 +59,8 @@ def run_training(train_df, test_df):
     optimizer = tf.train.AdamOptimizer(learning_rate)
     train_op = optimizer.minimize(loss, global_step=global_step)
 
-    correct_prediction = tf.equal(tf.argmax(prediction, 1), tf.argmax(target, 1))
-    accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+    correct_prediction = tf.equal(prediction, target)
+    accuracy = tf.reduce_mean(tf.cast(tf.sqrt(loss), tf.float32))
 
     def get_input_data(i):
         get_list = [n % (len(train_df) - 1) for n in range(batch_size * i, batch_size * i + batch_size)]
@@ -66,7 +71,7 @@ def run_training(train_df, test_df):
         return features, target
 
     def get_test_data(i):
-        if i > len(test_df):
+        if i * batch_size > len(test_df):
             return None, None;
         get_list = [n % (len(test_df) - 1) for n in range(batch_size * i, batch_size * i + batch_size)]
         samples = test_df.iloc[get_list]
@@ -79,12 +84,12 @@ def run_training(train_df, test_df):
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         try:
-            saver.restore(sess, './tmp/model.ckpt-360')
+            saver.restore(sess, './tmp/model.ckpt-6500')
             print("retrieved model:")
         except Exception as e:
             print("unable to retrieve model\n  %s", e.message)
 
-        for i in range(1, 1001):
+        for i in range(1, 2001):
             input_data, output_data = get_input_data(i)
 
             feed = {
@@ -95,21 +100,31 @@ def run_training(train_df, test_df):
             # This runs your optimizer one step
             sess.run(train_op, feed_dict=feed)
 
-            if i % 10 == 0:
-                # This will print your training loss every 100 iterations
+            if i % 100 == 0:
                 step = tf.train.global_step(sess, global_step)
                 print('At stop %d loss is: %f' % (step, np.sqrt(sess.run(loss, feed_dict=feed))))
-            if i % 20 == 0:
+            if i % 500 == 0:
                 save_path = saver.save(sess, model_path, global_step=global_step)
                 print('results saved to: %s' % save_path)
-        # while True:
-        #     input_data, output_data = get_input_data(i)
-        #     if input_data is None:
-        #         break;
-        #     feed = {
-        #         input: input_data,
-        #         target: output_data
-        #     }
+
+        # Evaluation
+        i = 0
+        mean = 0;
+        while True:
+            test_x, test_y = get_test_data(i)
+            if test_x is None:
+                break
+            eval_dict = {
+                input: test_x,
+                target: test_y
+            }
+            eval_loss = sess.run(accuracy, feed_dict=eval_dict)
+            print("At step %d loss is %f" % (i, eval_loss))
+            mean += eval_loss
+            i += 1
+
+        mean /= (i + 1)
+        print(mean)
 
 
 if __name__ == '__main__':
