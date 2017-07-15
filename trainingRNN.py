@@ -10,16 +10,20 @@ from simple_converter import get_train_test_sets
 
 
 def run_training(train_df, test_df, model_dir=None):
-    date_str = datetime.datetime.now().strftime("%I-%M-%p-%B-%d-%Y")
-    model_path = './models/%s/model.ckpt' % date_str;
+
 
     if model_dir is not None:
         with open(os.path.join(model_dir, "checkpoint"), "rU") as cp:
             match = re.match('model_checkpoint_path: \"(.+)\"', cp.readline())
             model_path = os.path.join(model_dir, match.group(1))
+    else:
+        date_str = datetime.datetime.now().strftime("%I-%M-%p-%B-%d-%Y")
+        model_dir = './models/%s' % date_str
+        if not os.path.exists(model_dir):
+            os.makedirs(model_dir)
 
-    if not os.path.exists("./models"):
-        os.makedirs("./models")
+    model_save_path = os.path.join(model_dir, "model.ckpt")
+
     # splited data
     df_target = train_df['logerror']
     df_features = train_df.drop(['logerror'], axis=1, inplace=False)
@@ -27,9 +31,9 @@ def run_training(train_df, test_df, model_dir=None):
     test_df_target = test_df['logerror']
     test_df_features = test_df.drop(['logerror'], axis=1, inplace=False)
 
-    learning_rate = 0.000001
-    batch_size = 128
-    hidden_units_size = 1024
+    learning_rate = 0.001
+    batch_size = 64
+    hidden_units_size = 2048
 
     input_dim = len(df_features.columns)
     output_dim = 1
@@ -119,7 +123,7 @@ def run_training(train_df, test_df, model_dir=None):
             except Exception as e:
                 print("unable to retrieve model\n  %s", e.message)
 
-        for i in range(1, 2001):
+        for i in range(1, 7001):
             input_data, output_data = get_input_data(i)
 
             feed = {
@@ -136,7 +140,7 @@ def run_training(train_df, test_df, model_dir=None):
 
             if i % 500 == 0:
                 evaluation(sess)
-                save_path = saver.save(sess, model_path, global_step=global_step)
+                save_path = saver.save(sess, model_save_path, global_step=global_step)
                 print('results saved to: %s' % save_path)
 
         evaluation(sess)
@@ -148,4 +152,4 @@ if __name__ == '__main__':
         train = pd.read_csv('./training.csv', dtype='float32')
     except:
         train, test = get_train_test_sets(0.8)
-    run_training(train, test, "./models/01-04-AM-July-15-2017/")
+    run_training(train, test, "./models/02-27-PM-July-15-2017")
