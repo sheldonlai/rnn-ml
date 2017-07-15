@@ -1,7 +1,14 @@
 import gc
 import pandas as pd
 from datetime import datetime
-import json
+
+
+def dummy_encode(df):
+    columns_to_encode = list(df.select_dtypes(include=['category', 'object']))
+    df = pd.get_dummies(df,prefix=columns_to_encode, columns=columns_to_encode)
+    print(df)
+    return df
+
 
 def get_train_test_sets(frac=0.7):
     joined_file_name = './joined_table.csv'
@@ -21,6 +28,8 @@ def get_train_test_sets(frac=0.7):
                                      .apply(lambda x: (pd.to_datetime(str(x), format='%Y-%m-%d')
                                                        - datetime(1960, 1, 1)).total_seconds() / (3600 * 24)))
         joined.to_csv(joined_file_name, index=False)
+
+    joined = dummy_encode(joined)
 
     for name, values in joined.iteritems():
         # fill in nan fields
@@ -43,7 +52,6 @@ def get_train_test_sets(frac=0.7):
             joined[name] = joined[name].astype('float32')
         elif joined[name].dtype == 'int64':
             joined[name] = joined[name].astype('float32')
-
 
     training_set = joined.sample(frac=frac)
 
