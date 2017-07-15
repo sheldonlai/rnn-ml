@@ -1,13 +1,25 @@
+import datetime
+import os
+import re
 import numpy as np
 import pandas as pd
 import tensorflow as tf
 from tensorflow.contrib import rnn
-from os import path
 
 from simple_converter import get_train_test_sets
 
 
-def run_training(train_df, test_df):
+def run_training(train_df, test_df, model_dir=None):
+    date_str = datetime.datetime.now().strftime("%I-%M-%p-%B-%d-%Y")
+    model_path = './models/%s/model.ckpt' % date_str;
+
+    if model_dir is not None:
+        with open(os.path.join(model_dir, "checkpoint"), "rU") as cp:
+            match = re.match('model_checkpoint_path: \"(.+)\"', cp.readline())
+            model_path = os.path.join(model_dir, match.group(1))
+
+    if not os.path.exists("./models"):
+        os.makedirs("./models")
     # splited data
     df_target = train_df['logerror']
     df_features = train_df.drop(['logerror'], axis=1, inplace=False)
@@ -15,14 +27,13 @@ def run_training(train_df, test_df):
     test_df_target = test_df['logerror']
     test_df_features = test_df.drop(['logerror'], axis=1, inplace=False)
 
-    model_path = './tmp/model.ckpt';
-
-    learning_rate = 0.00001
+    learning_rate = 0.000001
     batch_size = 128
     hidden_units_size = 1024
 
     input_dim = len(df_features.columns)
     output_dim = 1
+    regularize_rate = 0.1
 
     # x, y placeholder
     input = tf.placeholder(tf.float32, [None, batch_size, input_dim])
@@ -30,11 +41,6 @@ def run_training(train_df, test_df):
 
     # create RNN
     lstm = rnn.MultiRNNCell([
-        rnn.BasicLSTMCell(hidden_units_size),
-        rnn.BasicLSTMCell(hidden_units_size),
-        rnn.BasicLSTMCell(hidden_units_size),
-        rnn.BasicLSTMCell(hidden_units_size),
-
         rnn.BasicLSTMCell(hidden_units_size),
         rnn.BasicLSTMCell(hidden_units_size),
         rnn.BasicLSTMCell(hidden_units_size),
@@ -52,7 +58,9 @@ def run_training(train_df, test_df):
     prediction = tf.matmul(out, w) + b
 
     # Define loss function for the network
-    loss = tf.losses.mean_squared_error(target, prediction)
+    loss = tf.reduce_mean(tf.losses.mean_squared_error(target, prediction))
+    regularize = tf.nn.l2_loss(w)
+    loss = tf.reduce_mean(loss + regularize_rate * regularize)
 
     # Define optimizer and training operations
     global_step = tf.train.get_or_create_global_step()
@@ -72,7 +80,7 @@ def run_training(train_df, test_df):
 
     def get_test_data(i):
         if i * batch_size > len(test_df):
-            return None, None;
+            return None, None
         get_list = [n % (len(test_df) - 1) for n in range(batch_size * i, batch_size * i + batch_size)]
         samples = test_df.iloc[get_list]
         target = samples.pop('logerror').values.reshape(batch_size, 1)
@@ -80,14 +88,36 @@ def run_training(train_df, test_df):
         features = features.reshape(1, batch_size, input_dim)
         return features, target
 
+        # Evaluation
+
+    def evaluation(sess):
+        test_step = 0
+        mean = 0
+        while True:
+            test_x, test_y = get_test_data(test_step)
+            if test_x is None:
+                break
+            eval_dict = {
+                input: test_x,
+                target: test_y
+            }
+            eval_loss = sess.run(accuracy, feed_dict=eval_dict)
+
+            mean += eval_loss
+            test_step += 1
+
+        mean /= (test_step + 1)
+        print("Mean test loss is %f" % mean)
+
     saver = tf.train.Saver(write_version=tf.train.SaverDef.V2)
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        try:
-            saver.restore(sess, './tmp/model.ckpt-6500')
-            print("retrieved model:")
-        except Exception as e:
-            print("unable to retrieve model\n  %s", e.message)
+        if model_dir:
+            try:
+                saver.restore(sess, model_path)
+                print("retrieved model:")
+            except Exception as e:
+                print("unable to retrieve model\n  %s", e.message)
 
         for i in range(1, 2001):
             input_data, output_data = get_input_data(i)
@@ -102,29 +132,14 @@ def run_training(train_df, test_df):
 
             if i % 100 == 0:
                 step = tf.train.global_step(sess, global_step)
-                print('At stop %d loss is: %f' % (step, np.sqrt(sess.run(loss, feed_dict=feed))))
+                print('At step %d loss is: %f' % (step, np.sqrt(sess.run(loss, feed_dict=feed))))
+
             if i % 500 == 0:
+                evaluation(sess)
                 save_path = saver.save(sess, model_path, global_step=global_step)
                 print('results saved to: %s' % save_path)
 
-        # Evaluation
-        i = 0
-        mean = 0;
-        while True:
-            test_x, test_y = get_test_data(i)
-            if test_x is None:
-                break
-            eval_dict = {
-                input: test_x,
-                target: test_y
-            }
-            eval_loss = sess.run(accuracy, feed_dict=eval_dict)
-            print("At step %d loss is %f" % (i, eval_loss))
-            mean += eval_loss
-            i += 1
-
-        mean /= (i + 1)
-        print(mean)
+        evaluation(sess)
 
 
 if __name__ == '__main__':
@@ -133,4 +148,4 @@ if __name__ == '__main__':
         train = pd.read_csv('./training.csv', dtype='float32')
     except:
         train, test = get_train_test_sets(0.8)
-    run_training(train, test)
+    run_training(train, test, "./models/01-04-AM-July-15-2017/")
