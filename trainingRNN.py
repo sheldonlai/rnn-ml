@@ -11,12 +11,16 @@ from simple_converter import get_train_test_sets
 
 def run_training(train_df, test_df, model_dir=None):
     model_path=None
+    summaries_dir = ''
+
     if model_dir is not None:
         with open(os.path.join(model_dir, "checkpoint"), "rU") as cp:
             match = re.match('model_checkpoint_path: \"(.+)\"', cp.readline())
             model_path = os.path.join(model_dir, match.group(1))
+            summaries_dir = model_dir.replace("models", "log")
     else:
         date_str = datetime.datetime.now().strftime("%I-%M-%p-%B-%d-%Y")
+        summaries_dir = './log/%s' % date_str
         model_dir = './models/%s' % date_str
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
@@ -38,7 +42,7 @@ def run_training(train_df, test_df, model_dir=None):
     output_dim = 1
     regularize_rate = 0.2
 
-    summaries_dir = "./log"
+
 
     # x, y placeholder
     input = tf.placeholder(tf.float32, [None, batch_size, input_dim])
@@ -79,9 +83,7 @@ def run_training(train_df, test_df, model_dir=None):
 
     with tf.name_scope('accuracy'):
         accuracy = tf.reduce_mean(tf.cast(tf.sqrt(loss), tf.float32))
-        tf.summary.scalar('train_acc', accuracy)
-        test_accuracy = tf.reduce_mean(tf.cast(tf.sqrt(loss), tf.float32))
-        tf.summary.scalar('test_acc', test_accuracy)
+        tf.summary.scalar('acc', accuracy)
 
     def get_input_data(i):
         get_list = [n % (len(train_df) - 1) for n in range(batch_size * i, batch_size * i + batch_size)]
@@ -103,7 +105,7 @@ def run_training(train_df, test_df, model_dir=None):
 
         # Evaluation
 
-    def evaluation(sess, merged=None):
+    def evaluation(sess, merged, writer):
         test_step = 0
         mean = 0
         while True:
@@ -114,13 +116,18 @@ def run_training(train_df, test_df, model_dir=None):
                 input: test_x,
                 target: test_y
             }
-            summary, eval_loss = sess.run([merged, test_accuracy], feed_dict=eval_dict)
+            summary, eval_loss = sess.run([merged, accuracy], feed_dict=eval_dict)
 
             mean += eval_loss
             test_step += 1
 
         mean /= (test_step + 1)
         print("Mean test loss is %f" % mean)
+        test_summ = tf.Summary()
+        test_summ.value.add(tag='test_accuracy',
+                             simple_value=mean)
+        writer.add_summary(test_summ, i)
+        writer.add_summary(summary, i)
         return summary, mean
 
 
@@ -153,18 +160,21 @@ def run_training(train_df, test_df, model_dir=None):
                 if (i != 1):
                     print("%d steps used %f seconds" % (elapsed_steps, elapsed_time))
 
-            if i % 100 == 0:
+            if i % 50 == 0:
                 step = tf.train.global_step(sess, global_step)
                 summary, acc = sess.run([merged, loss], feed_dict=feed)
                 print('At step %d loss is: %f' % (step, np.sqrt(acc)))
+                train_summ = tf.Summary()
+                train_summ.value.add(tag='train_accuracy',
+                                     simple_value=np.sqrt(acc))
+                train_writer.add_summary(train_summ, i)
                 train_writer.add_summary(summary, i)
 
-            if i % 500 == 0:
-                summary = evaluation(sess, merged)
-                train_writer.add_summary(summary, i)
+            if i % 100 == 0:
+                evaluation(sess, merged, train_writer)
                 save_path = saver.save(sess, model_save_path, global_step=global_step)
                 print('results saved to: %s' % save_path)
-        evaluation(sess)
+        evaluation(sess, merged, train_writer)
 
 
 if __name__ == '__main__':
