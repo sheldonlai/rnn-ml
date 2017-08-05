@@ -10,8 +10,7 @@ from simple_converter import get_train_test_sets
 
 
 def run_training(train_df, test_df, model_dir=None):
-
-
+    model_path=None
     if model_dir is not None:
         with open(os.path.join(model_dir, "checkpoint"), "rU") as cp:
             match = re.match('model_checkpoint_path: \"(.+)\"', cp.readline())
@@ -32,12 +31,14 @@ def run_training(train_df, test_df, model_dir=None):
     test_df_features = test_df.drop(['logerror'], axis=1, inplace=False)
 
     learning_rate = 0.001
-    batch_size = 64
-    hidden_units_size = 2048
+    batch_size = 1028
+    hidden_units_size = 1028
 
     input_dim = len(df_features.columns)
     output_dim = 1
-    regularize_rate = 0.1
+    regularize_rate = 0.2
+
+    summaries_dir = "./log"
 
     # x, y placeholder
     input = tf.placeholder(tf.float32, [None, batch_size, input_dim])
@@ -62,17 +63,25 @@ def run_training(train_df, test_df, model_dir=None):
     prediction = tf.matmul(out, w) + b
 
     # Define loss function for the network
-    loss = tf.reduce_mean(tf.losses.mean_squared_error(target, prediction))
-    regularize = tf.nn.l2_loss(w)
-    loss = tf.reduce_mean(loss + regularize_rate * regularize)
+    with tf.name_scope('loss'):
+        loss = tf.reduce_mean(tf.losses.mean_squared_error(target, prediction))
+        regularize = tf.nn.l2_loss(w)
+        loss = tf.reduce_mean(loss + regularize_rate * regularize)
+        tf.summary.scalar('loss', loss)
 
     # Define optimizer and training operations
-    global_step = tf.train.get_or_create_global_step()
-    optimizer = tf.train.AdamOptimizer(learning_rate)
-    train_op = optimizer.minimize(loss, global_step=global_step)
+    with tf.name_scope('gloabl_step'):
+        global_step = tf.train.get_or_create_global_step()
 
-    correct_prediction = tf.equal(prediction, target)
-    accuracy = tf.reduce_mean(tf.cast(tf.sqrt(loss), tf.float32))
+    optimizer = tf.train.AdamOptimizer(learning_rate)
+    with tf.name_scope('train'):
+        train_op = optimizer.minimize(loss, global_step=global_step)
+
+    with tf.name_scope('accuracy'):
+        accuracy = tf.reduce_mean(tf.cast(tf.sqrt(loss), tf.float32))
+        tf.summary.scalar('train_acc', accuracy)
+        test_accuracy = tf.reduce_mean(tf.cast(tf.sqrt(loss), tf.float32))
+        tf.summary.scalar('test_acc', test_accuracy)
 
     def get_input_data(i):
         get_list = [n % (len(train_df) - 1) for n in range(batch_size * i, batch_size * i + batch_size)]
@@ -94,7 +103,7 @@ def run_training(train_df, test_df, model_dir=None):
 
         # Evaluation
 
-    def evaluation(sess):
+    def evaluation(sess, merged=None):
         test_step = 0
         mean = 0
         while True:
@@ -105,18 +114,23 @@ def run_training(train_df, test_df, model_dir=None):
                 input: test_x,
                 target: test_y
             }
-            eval_loss = sess.run(accuracy, feed_dict=eval_dict)
+            summary, eval_loss = sess.run([merged, test_accuracy], feed_dict=eval_dict)
 
             mean += eval_loss
             test_step += 1
 
         mean /= (test_step + 1)
         print("Mean test loss is %f" % mean)
+        return summary, mean
+
 
     saver = tf.train.Saver(write_version=tf.train.SaverDef.V2)
     with tf.Session() as sess:
+        merged = tf.summary.merge_all()
+        train_writer = tf.summary.FileWriter(summaries_dir, sess.graph)
+        timer = tf.train.SecondOrStepTimer(every_steps=10)
         sess.run(tf.global_variables_initializer())
-        if model_dir:
+        if model_path:
             try:
                 saver.restore(sess, model_path)
                 print("retrieved model:")
@@ -134,15 +148,22 @@ def run_training(train_df, test_df, model_dir=None):
             # This runs your optimizer one step
             sess.run(train_op, feed_dict=feed)
 
+            if timer.should_trigger_for_step(i):
+                elapsed_time, elapsed_steps = timer.update_last_triggered_step(i)
+                if (i != 1):
+                    print("%d steps used %f seconds" % (elapsed_steps, elapsed_time))
+
             if i % 100 == 0:
                 step = tf.train.global_step(sess, global_step)
-                print('At step %d loss is: %f' % (step, np.sqrt(sess.run(loss, feed_dict=feed))))
+                summary, acc = sess.run([merged, loss], feed_dict=feed)
+                print('At step %d loss is: %f' % (step, np.sqrt(acc)))
+                train_writer.add_summary(summary, i)
 
             if i % 500 == 0:
-                evaluation(sess)
+                summary = evaluation(sess, merged)
+                train_writer.add_summary(summary, i)
                 save_path = saver.save(sess, model_save_path, global_step=global_step)
                 print('results saved to: %s' % save_path)
-
         evaluation(sess)
 
 
@@ -152,4 +173,4 @@ if __name__ == '__main__':
         train = pd.read_csv('./training.csv', dtype='float32')
     except:
         train, test = get_train_test_sets(0.8)
-    run_training(train, test, "./models/02-27-PM-July-15-2017")
+    run_training(train, test)
