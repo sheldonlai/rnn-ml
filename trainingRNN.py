@@ -182,5 +182,6 @@ if __name__ == '__main__':
         test = pd.read_csv('./testing.csv', dtype='float32')
         train = pd.read_csv('./training.csv', dtype='float32')
     except:
-        train, test = get_train_test_sets(0.8)
+        train, test, valid = get_train_test_sets(0.8)
+
     run_training(train, test)

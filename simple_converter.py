@@ -55,8 +55,17 @@ def get_train_test_sets(frac=0.7):
 
     training_set = joined.sample(frac=frac)
 
-    testing_set = joined.loc[~joined.index.isin(training_set.index)]
+
+    # temp set for all the testing data
+    test_set = joined.loc[~joined.index.isin(training_set.index)]
+
+    #further split it in to validation and tseting
+    validation_set = test_set.sample(frac=0.5)
+    testing_set = joined.loc[~joined.index.isin(test_set.index)]
+
     training_set.to_csv("training.csv", index=False)
     testing_set.to_csv("testing.csv", index=False)
+    validation_set.to_csv("validation.csv", index=False)
 
-    return training_set, testing_set
+
+    return training_set, testing_set, validation_set
